@@ -1,0 +1,433 @@
+<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<style>[hidden]{display:none!important}</style>
+<title>Ева и Макс</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Comfortaa:wght@700&family=Nunito:wght@600;800&display=swap">
+<style>
+/* Layout: one centered 3:2 game stage on a night-blue ground, parent hint line below. Single deliberate dark look. */
+:root{
+  --night:#1d1b3a; --frame:#3a3470; --cream:#fff4dc; --coral:#ff7a6b; --sun:#ffd54a; --ink:#1d1b3a; --muted:#a9a3d9;
+  --display:'Comfortaa','Nunito',system-ui,sans-serif; --body:'Nunito',system-ui,sans-serif;
+  color-scheme:dark;
+}
+html,body{height:100%}
+body{background:var(--night);color:var(--cream);font-family:var(--body);margin:0;overflow:hidden}
+.wrap{height:100%;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding-inline:16px;padding-block:12px}
+.stage{position:relative;width:min(100%, calc((100dvh - 96px) * 1.5));aspect-ratio:3/2;max-width:100%}
+canvas{width:100%;height:100%;display:block;image-rendering:pixelated;border-radius:12px;box-shadow:0 0 0 4px var(--frame),0 18px 40px rgba(0,0,0,.45);background:#000}
+.help{font-size:13px;color:var(--muted);text-align:center;letter-spacing:.02em}
+.help b{color:var(--cream);font-weight:800}
+.overlay{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;background:rgba(29,27,58,.86);border-radius:12px;text-align:center;padding-inline:16px}
+.overlay h1{font-family:var(--display);font-size:clamp(28px,7vw,64px);margin:0;color:var(--sun);text-wrap:balance;text-shadow:0 4px 0 var(--coral)}
+.overlay p{margin:0;font-size:clamp(14px,2.4vw,20px);color:var(--cream);max-width:36ch}
+.btns{display:flex;gap:16px;flex-wrap:wrap;justify-content:center}
+.btn{font:800 clamp(16px,3vw,26px) var(--body);padding:.55em 1.4em;border-radius:999px;border:3px solid var(--sun);background:transparent;color:var(--cream);cursor:pointer;transition:transform .15s,background .15s}
+.btn.sel,.btn:focus-visible{background:var(--sun);color:var(--ink);transform:scale(1.08);outline:none}
+.mappiece{width:clamp(80px,16vw,140px)}
+.pad{display:none;gap:8px;align-items:center}
+body.touch .pad{display:flex}
+.pad .dpad{display:grid;grid-template-columns:repeat(3,48px);grid-template-rows:repeat(3,48px);gap:4px}
+.pad button{border:none;border-radius:12px;background:var(--frame);color:var(--cream);font:800 20px var(--body);touch-action:manipulation}
+.pad .ok{width:72px;height:72px;border-radius:50%;background:var(--coral);margin-left:18px}
+@media (prefers-reduced-motion:reduce){.btn{transition:none}}
+</style>
+</head><body>
+
+<div class="wrap">
+  <div class="stage">
+    <canvas id="game" width="480" height="320" aria-label="Игра Ева и Макс"></canvas>
+
+    <div class="overlay" id="ovStart">
+      <h1>Ева и Макс</h1>
+      <p>Найдите ключик и откройте сундук с кусочком карты!</p>
+      <div class="btns"><button class="btn sel" data-act="play">▶ Играть</button><button class="btn" data-act="exit" hidden>✕ Выйти</button></div>
+    </div>
+
+    <div class="overlay" id="ovPause" hidden>
+      <h1>Пауза</h1>
+      <div class="btns">
+        <button class="btn sel" data-act="resume">▶ Играть</button>
+        <button class="btn" data-act="restart">↺ Сначала</button>
+        <button class="btn" data-act="exit" hidden>✕ Выйти</button>
+      </div>
+    </div>
+
+    <div class="overlay" id="ovWin" hidden>
+      <h1>Ура! Сокровище!</h1>
+      <svg class="mappiece" viewBox="0 0 100 80" aria-hidden="true">
+        <path d="M8 10 L60 4 L92 14 L86 70 L40 76 L12 66 Z" fill="#f3d9a4" stroke="#b5874a" stroke-width="3"/>
+        <path d="M22 54 Q40 30 58 44 T80 24" fill="none" stroke="#b5874a" stroke-width="3" stroke-dasharray="5 5"/>
+        <path d="M74 18 l10 10 M84 18 l-10 10" stroke="#ff7a6b" stroke-width="5" stroke-linecap="round"/>
+      </svg>
+      <p id="winStars">Звёздочек: 0</p>
+      <div class="btns"><button class="btn sel" data-act="restart">↺ Ещё раз</button></div>
+    </div>
+  </div>
+
+  <div class="pad" aria-hidden="true">
+    <div class="dpad">
+      <span></span><button data-k="up">▲</button><span></span>
+      <button data-k="left">◀</button><span></span><button data-k="right">▶</button>
+      <span></span><button data-k="down">▼</button><span></span>
+    </div>
+    <button class="ok" data-k="ok">OK</button>
+  </div>
+
+  <div class="help"><b>Стрелки</b> — ходить · <b>OK</b> — действие или смена героя · <b>Назад</b> — пауза</div>
+</div>
+
+<script>
+(()=>{
+const T=32, RW=15, RH=10;
+const SRC=[
+"###############"+"###############",
+"#bb.....#*..K.#"+"#.....L.f.....#",
+"#.......#.....#"+"#.......f...C.#",
+"#..*....##h####"+"#.......ffGfff#",
+"#.............#"+"#.............#",
+"#...rrr....*..B"+"...*..........#",
+"#.EM..........#"+"#.............#",
+"#..t......*...#"+"#...*.........#",
+"#.............#"+"#..c..........#",
+"###############"+"###############"
+];
+const W=SRC[0].length, H=SRC.length;
+
+const cv=document.getElementById('game'), ctx=cv.getContext('2d');
+let grid, stars, keyPos, box, cat, heroes, lead, hasKey, gateOpen, chestOpen, starTotal, starCount;
+let bubbles=[], parts=[], camX=0, idle=0, lastMove=0, mode='start', time=0, winTimer=0;
+
+function reset(){
+  grid=[]; stars=new Set(); heroes=[];
+  for(let y=0;y<H;y++){ grid.push([]); for(let x=0;x<W;x++){
+    let c=SRC[y][x];
+    if(c==='*'){stars.add(x+','+y);c='.'}
+    else if(c==='K'){keyPos={x,y};c='.'}
+    else if(c==='B'){box={x,y};c='.'}
+    else if(c==='c'){cat={x,y};c='.'}
+    else if(c==='E'){heroes[0]={who:'eva',x,y,px:x,py:y,face:[0,1],bump:0};c='.'}
+    else if(c==='M'){heroes[1]={who:'max',x,y,px:x,py:y,face:[0,1],bump:0};c='.'}
+    grid[y].push(c);
+  }}
+  lead=0; hasKey=false; gateOpen=false; chestOpen=false;
+  starTotal=stars.size; starCount=0; bubbles=[]; parts=[]; idle=0; winTimer=0;
+  camX=roomOf(heroes[0].x)*RW;
+}
+const roomOf=x=>x<RW?0:1;
+const tile=(x,y)=>(x<0||y<0||x>=W||y>=H)?'#':grid[y][x];
+const heroAt=(x,y)=>heroes.find(h=>h.x===x&&h.y===y);
+
+function canStand(x,y,who){
+  const c=tile(x,y);
+  if('#btLfCw'.includes(c)) return false;
+  if(c==='G'&&!gateOpen) return false;
+  if(c==='h'&&who!=='max') return false;
+  if(box.x===x&&box.y===y) return false;
+  if(cat.x===x&&cat.y===y) return false;
+  return true;
+}
+function boxCanEnter(x,y){
+  const c=tile(x,y);
+  if(c!=='.'&&c!=='r') return false;
+  return !heroAt(x,y) && !(cat.x===x&&cat.y===y);
+}
+
+/* ---------- audio & voice ---------- */
+let ac;
+function audioOn(){ if(!ac){try{ac=new (window.AudioContext||window.webkitAudioContext)()}catch(e){}} if(ac&&ac.state==='suspended')ac.resume(); }
+function tone(f,d,type='sine',vol=.12,delay=0,f2){ if(!ac)return; const t=ac.currentTime+delay;
+  const o=ac.createOscillator(),g=ac.createGain(); o.type=type; o.frequency.setValueAtTime(f,t);
+  if(f2)o.frequency.exponentialRampToValueAtTime(f2,t+d);
+  g.gain.setValueAtTime(vol,t); g.gain.exponentialRampToValueAtTime(.001,t+d);
+  o.connect(g); g.connect(ac.destination); o.start(t); o.stop(t+d+.03); }
+function sfx(k){ switch(k){
+  case 'step': tone(260,.05,'triangle',.04); break;
+  case 'star': tone(880,.1,'sine',.12); tone(1320,.18,'sine',.12,.08); break;
+  case 'key':  [660,880,1100,1320].forEach((f,i)=>tone(f,.12,'triangle',.1,i*.07)); break;
+  case 'bump': tone(120,.12,'square',.05); break;
+  case 'push': tone(150,.12,'sawtooth',.05); break;
+  case 'lever':tone(330,.1,'square',.06); tone(660,.2,'triangle',.1,.1); break;
+  case 'meow': tone(750,.35,'sine',.1,0,480); break;
+  case 'swap': tone(520,.08,'triangle',.08); tone(780,.1,'triangle',.08,.06); break;
+  case 'win':  [523,659,784,1046,784,1046].forEach((f,i)=>tone(f,.22,'triangle',.12,i*.15)); break;
+}}
+/* Записанные фразы: файлы лежат в папке voice/ рядом с index.html. Нет файла — говорит синтезатор. */
+const VOICE={
+  'Ура, ключик!':'eva_key','Я не пролезу. Макс, давай ты!':'eva_cant_fit','Ура! Калитка открылась!':'eva_gate_open',
+  'Теперь идёт Ева':'eva_lead','Калитка закрыта. Где-то есть рычаг!':'gate_closed','Закрыто. Нужен ключик!':'need_key',
+  'Сокровище! Мы нашли кусочек карты!':'treasure','Ева и Макс! Найдите ключик и сундук!':'intro','Посмотри, что светится!':'hint',
+  'Тяжело! Ева, помоги!':'max_heavy','Высоко! Ева, помоги!':'max_high','Теперь идёт Макс':'max_lead'
+};
+let curClip=null;
+function speak(t){
+  const f=VOICE[t]; if(!f){ tts(t); return; }
+  try{ if(curClip){curClip.pause();} const a=new Audio('voice/'+f+'.mp3'); curClip=a; let fell=false;
+    const fb=()=>{ if(!fell){fell=true; tts(t);} };
+    a.onerror=fb; const p=a.play(); if(p&&p.catch)p.catch(fb);
+  }catch(e){ tts(t); }
+}
+function tts(t){ try{ if(!t)return; if(window.Android&&Android.speak){ Android.speak(t); return; } if(!('speechSynthesis' in window))return; speechSynthesis.cancel();
+  const u=new SpeechSynthesisUtterance(t); u.lang='ru-RU'; u.rate=.95; u.pitch=1.2; speechSynthesis.speak(u);}catch(e){} }
+function say(h,text,voice){ bubbles=bubbles.filter(b=>b.h!==h); bubbles.push({h,text,t:2.2}); speak(voice||text); }
+
+/* ---------- moves ---------- */
+function bfsStep(F,tx,ty){
+  const key=(x,y)=>y*W+x, prev=new Map([[key(F.x,F.y),null]]); const q=[[F.x,F.y]];
+  while(q.length){ const [x,y]=q.shift();
+    for(const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]]){ const nx=x+dx,ny=y+dy, k=key(nx,ny);
+      if(prev.has(k))continue;
+      if(nx===tx&&ny===ty){ let cx=x,cy=y,p=[x,y]; let back=prev.get(key(cx,cy)); if(!back) return null;
+        while(back){ p=[cx,cy]; [cx,cy]=back; back=prev.get(key(cx,cy)); } return p; }
+      if(!canStand(nx,ny,F.who)||heroAt(nx,ny))continue;
+      prev.set(k,[x,y]); q.push([nx,ny]);
+      if(prev.size>120) return null;
+    }}
+  return null;
+}
+function tryMove(dx,dy){
+  const L=heroes[lead], F=heroes[1-lead]; L.face=[dx,dy];
+  const nx=L.x+dx, ny=L.y+dy, ox=L.x, oy=L.y;
+  if(box.x===nx&&box.y===ny){
+    if(L.who!=='eva'){ L.bump=1; sfx('bump'); say(L,'Тяжело!','Тяжело! Ева, помоги!'); return; }
+    if(!boxCanEnter(nx+dx,ny+dy)){ L.bump=1; sfx('bump'); return; }
+    box.x+=dx; box.y+=dy; sfx('push');
+  } else if(F.x===nx&&F.y===ny){
+    let spot=canStand(ox,oy,F.who)?[ox,oy]:null;
+    if(!spot) for(const [ax,ay] of [[1,0],[-1,0],[0,1],[0,-1]]){ const sx=nx+ax,sy=ny+ay;
+      if(!(sx===ox&&sy===oy)&&canStand(sx,sy,F.who)&&!heroAt(sx,sy)){spot=[sx,sy];break;} }
+    if(!spot){ L.bump=1; sfx('bump'); return; }
+    F.x=spot[0]; F.y=spot[1]; L.x=nx; L.y=ny; sfx('step'); after(); return;
+  } else if(!canStand(nx,ny,L.who)){
+    L.bump=1; sfx('bump');
+    const c=tile(nx,ny);
+    if(c==='h') say(L,'Не пролезу','Я не пролезу. Макс, давай ты!');
+    else if(c==='G') say(L,'Закрыто','Калитка закрыта. Где-то есть рычаг!');
+    return;
+  }
+  L.x=nx; L.y=ny; sfx('step');
+  if(Math.abs(F.x-L.x)+Math.abs(F.y-L.y)>1){ const s=bfsStep(F,L.x,L.y); if(s){ F.face=[s[0]-F.x,s[1]-F.y]; F.x=s[0]; F.y=s[1]; } }
+  after();
+}
+function after(){
+  for(const h of heroes){
+    const k=h.x+','+h.y;
+    if(stars.has(k)){ stars.delete(k); starCount++; sfx('star'); burst(h.x,h.y,'#ffd54a'); }
+    if(keyPos&&keyPos.x===h.x&&keyPos.y===h.y){ keyPos=null; hasKey=true; sfx('key'); burst(h.x,h.y,'#ffe08a'); say(h,'Ключик!','Ура, ключик!'); }
+  }
+}
+function action(){
+  const L=heroes[lead];
+  const dirs=[L.face,[1,0],[-1,0],[0,1],[0,-1]];
+  for(const [dx,dy] of dirs){
+    const x=L.x+dx,y=L.y+dy,c=tile(x,y);
+    if(c==='L'){
+      if(gateOpen){ say(L,'Уже открыто'); return; }
+      if(L.who==='eva'){ gateOpen=true; sfx('lever'); burst(25,3,'#ffffff'); say(L,'Открыто!','Ура! Калитка открылась!'); }
+      else { L.bump=1; sfx('bump'); say(L,'Высоко!','Высоко! Ева, помоги!'); }
+      return;
+    }
+    if(c==='C'){
+      if(chestOpen) return;
+      if(hasKey){ chestOpen=true; sfx('win'); burst(x,y,'#ffd54a'); burst(x,y,'#ff7a6b'); say(L,'Сокровище!','Сокровище! Мы нашли кусочек карты!'); winTimer=1.8; }
+      else { sfx('bump'); say(L,'Нужен ключик','Закрыто. Нужен ключик!'); }
+      return;
+    }
+    if(cat&&cat.x===x&&cat.y===y){ sfx('meow'); parts.push({x:x*T+16,y:y*T+4,vx:0,vy:-20,t:1.2,heart:true}); speak('Мяу!'); return; }
+  }
+  lead=1-lead; sfx('swap');
+  say(heroes[lead], heroes[lead].who==='eva'?'Я веду!':'Я веду!', heroes[lead].who==='eva'?'Теперь идёт Ева':'Теперь идёт Макс');
+}
+function burst(tx,ty,col){ for(let i=0;i<10;i++){ const a=Math.random()*Math.PI*2, s=40+Math.random()*60;
+  parts.push({x:tx*T+16,y:ty*T+16,vx:Math.cos(a)*s,vy:Math.sin(a)*s-30,t:.7,col}); } }
+
+function hintTarget(){
+  if(!hasKey) return heroes[lead].y<3&&heroes[lead].x<RW ? keyPos : {x:10,y:3};
+  if(box.x===14&&box.y===5) return {x:14,y:5};
+  if(!gateOpen) return {x:21,y:1};
+  if(!chestOpen) return {x:27,y:2};
+  return null;
+}
+
+/* ---------- drawing ---------- */
+const COL={
+  0:{floor:'#e9b97c',floor2:'#d9a465',wall:'#6a4f8e',wallTop:'#8a6db0'},
+  1:{floor:'#cfe8e1',floor2:'#b6d9cf',wall:'#3c7d87',wallTop:'#5aa1a9'}
+};
+function rr(x,y,w,h,r){ ctx.beginPath(); ctx.roundRect?ctx.roundRect(x,y,w,h,r):ctx.rect(x,y,w,h); }
+function drawFloor(x,y,sx,sy,pal){
+  if(roomOf(x)===0){ ctx.fillStyle=pal.floor; ctx.fillRect(sx,sy,T,T); ctx.fillStyle=pal.floor2;
+    ctx.fillRect(sx,sy+15,T,2); ctx.fillRect(sx+((y%2)?8:22),sy,2,15); ctx.fillRect(sx+((y%2)?24:6),sy+17,2,15); }
+  else { ctx.fillStyle=((x+y)%2)?pal.floor:pal.floor2; ctx.fillRect(sx,sy,T,T); }
+}
+function drawStar(cx,cy,r,rot,col){
+  ctx.beginPath(); for(let i=0;i<10;i++){ const a=rot+i*Math.PI/5-Math.PI/2, rad=i%2?r*.45:r; ctx.lineTo(cx+Math.cos(a)*rad,cy+Math.sin(a)*rad); }
+  ctx.closePath(); ctx.fillStyle=col; ctx.fill(); ctx.strokeStyle='#c98d12'; ctx.lineWidth=1.5; ctx.stroke();
+}
+function drawTile(x,y,sx,sy){
+  const c=tile(x,y), pal=COL[roomOf(x)];
+  if(c==='#'||c==='h'){
+    ctx.fillStyle=pal.wall; ctx.fillRect(sx,sy,T,T);
+    const below=tile(x,y+1); if(below!=='#'&&below!=='h'){ ctx.fillStyle=pal.wallTop; ctx.fillRect(sx,sy+T-8,T,8); }
+    if(c==='h'){ ctx.fillStyle='#1a1230'; ctx.beginPath(); ctx.arc(sx+16,sy+T,11,Math.PI,0); ctx.fill(); }
+    return;
+  }
+  drawFloor(x,y,sx,sy,pal);
+  switch(c){
+    case 'r': ctx.fillStyle='#d9534f'; ctx.fillRect(sx,sy+4,T,T-8); ctx.fillStyle='#f5c26b'; ctx.fillRect(sx,sy+8,T,2); ctx.fillRect(sx,sy+T-10,T,2); break;
+    case 'b': ctx.fillStyle='#8b5a2b'; ctx.fillRect(sx+2,sy+2,T-4,T-2); ctx.fillStyle='#5b8dd9'; ctx.fillRect(sx+4,sy+10,T-8,T-12);
+      if(x===1){ ctx.fillStyle='#ffffff'; rr(sx+6,sy+4,20,8,3); ctx.fill(); } break;
+    case 't': ctx.fillStyle='#8b5a2b'; ctx.fillRect(sx+3,sy+6,T-6,16); ctx.fillStyle='#6d4421'; ctx.fillRect(sx+5,sy+22,4,8); ctx.fillRect(sx+T-9,sy+22,4,8);
+      ctx.fillStyle='#ff7a6b'; ctx.beginPath(); ctx.arc(sx+16,sy+10,4,0,7); ctx.fill(); break;
+    case 'w': ctx.fillStyle='#c0623b'; ctx.fillRect(sx+9,sy+18,14,12); ctx.fillStyle='#3e9b52'; ctx.beginPath(); ctx.arc(sx+16,sy+12,9,0,7); ctx.fill(); break;
+    case 'L': ctx.fillStyle='#8b5a2b'; ctx.fillRect(sx+2,sy+18,T-4,6); ctx.fillStyle='#555'; ctx.fillRect(sx+13,sy+12,6,8);
+      ctx.save(); ctx.translate(sx+16,sy+16); ctx.rotate(gateOpen?.7:-.7); ctx.fillStyle='#777'; ctx.fillRect(-2,-14,4,14);
+      ctx.fillStyle='#e8433a'; ctx.beginPath(); ctx.arc(0,-14,4,0,7); ctx.fill(); ctx.restore(); break;
+    case 'f': case 'G':
+      if(c==='G'&&gateOpen){ ctx.fillStyle='#fff'; ctx.fillRect(sx,sy+8,4,22); ctx.fillRect(sx+T-4,sy+8,4,22); break; }
+      ctx.fillStyle='#fffaf0'; for(let i=0;i<4;i++){ ctx.fillRect(sx+2+i*8,sy+6,5,24); }
+      ctx.fillRect(sx,sy+12,T,3); ctx.fillRect(sx,sy+22,T,3);
+      if(c==='G'){ ctx.fillStyle='#ffd54a'; rr(sx+11,sy+14,10,9,2); ctx.fill(); } break;
+    case 'C':
+      ctx.fillStyle='#8b4f22'; rr(sx+3,sy+10,T-6,18,3); ctx.fill();
+      if(chestOpen){ ctx.fillStyle='#ffd54a'; ctx.fillRect(sx+6,sy+10,T-12,5); ctx.fillStyle='#6d3a15'; rr(sx+3,sy+2,T-6,8,3); ctx.fill(); }
+      else { ctx.fillStyle='#a8622c'; rr(sx+3,sy+6,T-6,10,4); ctx.fill(); ctx.fillStyle='#ffd54a'; ctx.fillRect(sx+3,sy+14,T-6,3); ctx.fillRect(sx+14,sy+13,4,7); }
+      break;
+  }
+}
+function drawHero(h,t){
+  const isLead=heroes[lead]===h;
+  const bob=Math.abs(Math.sin(t*6+(h.who==='max'?1:0)))*(Math.abs(h.px-h.x)+Math.abs(h.py-h.y)>.05?2:0.6);
+  const shake=h.bump>0?Math.sin(h.bump*40)*2*h.bump:0;
+  const cx=h.px*T+16+shake, base=h.py*T+30-bob, up=h.face[1]===-1, fx=h.face[0]*2;
+  ctx.fillStyle='rgba(0,0,0,.18)'; ctx.beginPath(); ctx.ellipse(h.px*T+16,h.py*T+30,9,3,0,0,7); ctx.fill();
+  if(h.who==='eva'){
+    ctx.fillStyle='#4a3b6b'; ctx.fillRect(cx-5,base-6,3,6); ctx.fillRect(cx+2,base-6,3,6);
+    ctx.fillStyle='#ff7a6b'; ctx.beginPath(); ctx.moveTo(cx-5,base-18); ctx.lineTo(cx+5,base-18); ctx.lineTo(cx+9,base-5); ctx.lineTo(cx-9,base-5); ctx.closePath(); ctx.fill();
+    ctx.fillStyle='#ffd3b0'; ctx.beginPath(); ctx.arc(cx,base-23,7,0,7); ctx.fill();
+    ctx.fillStyle='#7a4a24'; ctx.beginPath(); ctx.arc(cx,base-25,7,Math.PI,0); ctx.fill();
+    ctx.beginPath(); ctx.arc(cx-8,base-22,3.5,0,7); ctx.arc(cx+8,base-22,3.5,0,7); ctx.fill();
+    if(up){ ctx.beginPath(); ctx.arc(cx,base-23,7,0,7); ctx.fill(); }
+    else { ctx.fillStyle='#2b2140'; ctx.fillRect(cx-3+fx,base-23,2,2); ctx.fillRect(cx+2+fx,base-23,2,2); ctx.fillStyle='#ff9f97'; ctx.fillRect(cx-5+fx,base-20,2,1); ctx.fillRect(cx+4+fx,base-20,2,1); }
+  } else {
+    ctx.fillStyle='#2f4f8a'; ctx.fillRect(cx-4,base-5,3,5); ctx.fillRect(cx+1,base-5,3,5);
+    ctx.fillStyle='#4fa3e8'; rr(cx-6,base-13,12,9,3); ctx.fill();
+    ctx.fillStyle='#ffd3b0'; ctx.beginPath(); ctx.arc(cx,base-18,6,0,7); ctx.fill();
+    ctx.fillStyle='#f2c94c'; ctx.beginPath(); ctx.arc(cx,base-20,6,Math.PI,0); ctx.fill(); ctx.fillRect(cx-1,base-27,3,3);
+    if(up){ ctx.beginPath(); ctx.arc(cx,base-18,6,0,7); ctx.fill(); }
+    else { ctx.fillStyle='#2b2140'; ctx.fillRect(cx-3+fx,base-18,2,2); ctx.fillRect(cx+2+fx,base-18,2,2); }
+  }
+  if(isLead){ const ay=base-(h.who==='eva'?36:30)-Math.sin(t*5)*2; ctx.fillStyle='#ffd54a';
+    ctx.beginPath(); ctx.moveTo(cx-5,ay); ctx.lineTo(cx+5,ay); ctx.lineTo(cx,ay+6); ctx.closePath(); ctx.fill(); }
+}
+function drawBubble(b){
+  const h=b.h, cx=h.px*T+16, top=h.py*T-(h.who==='eva'?14:8);
+  ctx.font='800 11px Nunito, system-ui, sans-serif'; const w=ctx.measureText(b.text).width+14;
+  const bx=Math.min(Math.max(cx-w/2, camX*T+2), camX*T+RW*T-w-2), by=top-18;
+  ctx.globalAlpha=Math.min(1,b.t*3); ctx.fillStyle='#fffaf0'; rr(bx,by,w,17,8); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(cx-4,by+16); ctx.lineTo(cx+4,by+16); ctx.lineTo(cx,by+21); ctx.fill();
+  ctx.fillStyle='#1d1b3a'; ctx.textBaseline='middle'; ctx.fillText(b.text,bx+7,by+9); ctx.globalAlpha=1;
+}
+function drawHUD(){
+  ctx.fillStyle='rgba(20,16,44,.55)'; rr(6,4,160,24,12); ctx.fill();
+  drawStar(22,16,8,0,'#ffd54a');
+  ctx.font='800 13px Nunito, system-ui, sans-serif'; ctx.fillStyle='#fff4dc'; ctx.textBaseline='middle';
+  ctx.fillText(starCount+'/'+starTotal,34,17);
+  ctx.globalAlpha=hasKey?1:.3; drawKey(92,16); ctx.globalAlpha=1;
+  ctx.globalAlpha=chestOpen?1:.3; ctx.fillStyle='#f3d9a4'; ctx.beginPath(); ctx.moveTo(126,9); ctx.lineTo(150,7); ctx.lineTo(154,23); ctx.lineTo(128,25); ctx.closePath(); ctx.fill();
+  ctx.strokeStyle='#ff7a6b'; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(140,12); ctx.lineTo(146,18); ctx.moveTo(146,12); ctx.lineTo(140,18); ctx.stroke(); ctx.globalAlpha=1;
+}
+function drawKey(cx,cy){ ctx.fillStyle='#ffc93c'; ctx.beginPath(); ctx.arc(cx-6,cy,5,0,7); ctx.fill(); ctx.fillRect(cx-2,cy-1.5,14,3); ctx.fillRect(cx+7,cy,3,5); ctx.fillRect(cx+3,cy,2,4);
+  ctx.fillStyle='rgba(0,0,0,.35)'; ctx.beginPath(); ctx.arc(cx-6,cy,2,0,7); ctx.fill(); }
+
+function render(t){
+  ctx.setTransform(1,0,0,1,0,0); ctx.clearRect(0,0,cv.width,cv.height);
+  ctx.translate(-Math.round(camX*T),0);
+  const x0=Math.max(0,Math.floor(camX)), x1=Math.min(W,Math.ceil(camX+RW));
+  for(let y=0;y<H;y++) for(let x=x0;x<x1;x++) drawTile(x,y,x*T,y*T);
+  for(const s of stars){ const [x,y]=s.split(',').map(Number); if(x<x0||x>=x1)continue; drawStar(x*T+16,y*T+16+Math.sin(t*3+x)*2,9,Math.sin(t*2+y)*.3,'#ffd54a'); }
+  if(keyPos) drawKey(keyPos.x*T+16,keyPos.y*T+16+Math.sin(t*3)*2);
+  // box
+  { const sx=box.x*T, sy=box.y*T; ctx.fillStyle='#b77a3f'; ctx.fillRect(sx+3,sy+3,T-6,T-6); ctx.strokeStyle='#7a4d22'; ctx.lineWidth=3;
+    ctx.strokeRect(sx+4.5,sy+4.5,T-9,T-9); ctx.beginPath(); ctx.moveTo(sx+6,sy+6); ctx.lineTo(sx+T-6,sy+T-6); ctx.stroke(); }
+  // cat
+  { const sx=cat.x*T+16, sy=cat.y*T+20, wag=Math.sin(t*4)*3; ctx.fillStyle='#f29a3b';
+    ctx.beginPath(); ctx.ellipse(sx,sy+2,10,7,0,0,7); ctx.fill(); ctx.beginPath(); ctx.arc(sx-8,sy-5,6,0,7); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(sx-13,sy-8); ctx.lineTo(sx-11,sy-15); ctx.lineTo(sx-7,sy-10); ctx.moveTo(sx-8,sy-10); ctx.lineTo(sx-4,sy-15); ctx.lineTo(sx-3,sy-8); ctx.fill();
+    ctx.strokeStyle='#f29a3b'; ctx.lineWidth=3; ctx.beginPath(); ctx.moveTo(sx+9,sy); ctx.quadraticCurveTo(sx+16,sy-6+wag,sx+12,sy-12); ctx.stroke();
+    ctx.fillStyle='#2b2140'; ctx.fillRect(sx-11,sy-6,2,2); ctx.fillRect(sx-7,sy-6,2,2); }
+  // hint glow
+  if(idle>12&&mode==='play'){ const h=hintTarget(); if(h){ const p=(Math.sin(t*4)+1)/2; ctx.strokeStyle=`rgba(255,213,74,${.4+p*.6})`; ctx.lineWidth=3;
+    ctx.beginPath(); ctx.arc(h.x*T+16,h.y*T+16,14+p*5,0,7); ctx.stroke(); } }
+  [...heroes].sort((a,b)=>a.py-b.py).forEach(h=>drawHero(h,t));
+  for(const p of parts){ ctx.globalAlpha=Math.min(1,p.t*2);
+    if(p.heart){ ctx.fillStyle='#ff5f7e'; ctx.beginPath(); ctx.arc(p.x-3,p.y,4,0,7); ctx.arc(p.x+3,p.y,4,0,7); ctx.fill(); ctx.beginPath(); ctx.moveTo(p.x-7,p.y+1); ctx.lineTo(p.x+7,p.y+1); ctx.lineTo(p.x,p.y+9); ctx.fill(); }
+    else { ctx.fillStyle=p.col; ctx.fillRect(p.x-2,p.y-2,4,4); } }
+  ctx.globalAlpha=1;
+  bubbles.forEach(drawBubble);
+  ctx.setTransform(1,0,0,1,0,0); drawHUD();
+}
+
+let prev=performance.now();
+function loop(now){
+  const dt=Math.min(.05,(now-prev)/1000); prev=now; time+=dt;
+  for(const h of heroes){ const k=Math.min(1,dt*16); h.px+=(h.x-h.px)*k; h.py+=(h.y-h.py)*k; if(h.bump>0)h.bump=Math.max(0,h.bump-dt*3); }
+  const targetCam=roomOf(heroes[lead].x)*RW; camX+=(targetCam-camX)*Math.min(1,dt*8); if(Math.abs(targetCam-camX)<.01)camX=targetCam;
+  bubbles.forEach(b=>b.t-=dt); bubbles=bubbles.filter(b=>b.t>0);
+  parts.forEach(p=>{p.x+=p.vx*dt;p.y+=p.vy*dt;if(!p.heart)p.vy+=160*dt;p.t-=dt;}); parts=parts.filter(p=>p.t>0);
+  if(mode==='play'){ idle+=dt; if(idle>12&&idle-dt<=12) speak('Посмотри, что светится!'); }
+  if(winTimer>0){ winTimer-=dt; if(winTimer<=0) showOverlay('win'); }
+  render(time); requestAnimationFrame(loop);
+}
+
+/* ---------- menus & input ---------- */
+const ovs={start:document.getElementById('ovStart'),pause:document.getElementById('ovPause'),win:document.getElementById('ovWin')};
+function showOverlay(name){
+  for(const k in ovs) ovs[k].hidden=k!==name;
+  mode=name||'play';
+  if(name==='win'){ document.getElementById('winStars').textContent='Звёздочек: '+starCount+' из '+starTotal; }
+  if(name){ const b=[...ovs[name].querySelectorAll('.btn:not([hidden])')]; b.forEach((x,i)=>x.classList.toggle('sel',i===0)); }
+}
+function menuMove(d){ const b=[...ovs[mode].querySelectorAll('.btn:not([hidden])')]; let i=b.findIndex(x=>x.classList.contains('sel')); i=(i+d+b.length)%b.length; b.forEach((x,j)=>x.classList.toggle('sel',j===i)); }
+function menuDo(act){
+  audioOn();
+  if(act==='play'){ showOverlay(null); speak('Ева и Макс! Найдите ключик и сундук!'); }
+  else if(act==='resume') showOverlay(null);
+  else if(act==='restart'){ reset(); showOverlay(null); }
+  else if(act==='exit'&&window.Android) Android.exit();
+}
+document.querySelectorAll('.btn').forEach(b=>b.addEventListener('click',()=>menuDo(b.dataset.act)));
+
+function input(k){
+  audioOn(); idle=0;
+  if(mode!=='play'){
+    if(k==='left'||k==='up') menuMove(-1); else if(k==='right'||k==='down') menuMove(1);
+    else if(k==='ok'){ const s=ovs[mode].querySelector('.btn.sel'); if(s) menuDo(s.dataset.act); }
+    else if(k==='back'&&mode==='pause') showOverlay(null);
+    return;
+  }
+  if(winTimer>0) return;
+  if(k==='back'){ showOverlay('pause'); return; }
+  if(k==='ok'){ action(); return; }
+  const now=performance.now(); if(now-lastMove<150) return; lastMove=now;
+  const d={up:[0,-1],down:[0,1],left:[-1,0],right:[1,0]}[k]; if(d) tryMove(d[0],d[1]);
+}
+const KEYMAP={ArrowUp:'up',ArrowDown:'down',ArrowLeft:'left',ArrowRight:'right',Enter:'ok',' ':'ok',NumpadEnter:'ok',Select:'ok',Escape:'back',Backspace:'back',GoBack:'back',BrowserBack:'back'};
+const CODEMAP={19:'up',20:'down',21:'left',22:'right',23:'ok',66:'ok',13:'ok',4:'back',27:'back',8:'back'};
+window.addEventListener('keydown',e=>{
+  const k=KEYMAP[e.key]||CODEMAP[e.keyCode]; if(!k) return;
+  e.preventDefault(); if(k==='ok'&&e.repeat) return; input(k);
+});
+let holdTimer=null;
+document.querySelectorAll('.pad button').forEach(b=>{
+  b.addEventListener('pointerdown',e=>{ e.preventDefault(); input(b.dataset.k); clearInterval(holdTimer);
+    if(b.dataset.k!=='ok') holdTimer=setInterval(()=>input(b.dataset.k),190); });
+  ['pointerup','pointerleave','pointercancel'].forEach(ev=>b.addEventListener(ev,()=>clearInterval(holdTimer)));
+});
+window.addEventListener('touchstart',()=>document.body.classList.add('touch'),{once:true,passive:true});
+
+window.onAndroidBack=()=>input('back');
+if(window.Android){ document.querySelectorAll('[data-act="exit"]').forEach(b=>b.hidden=false); }
+reset(); requestAnimationFrame(loop);
+})();
+</script>
+</body></html>
