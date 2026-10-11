@@ -1,0 +1,34 @@
+name: Fetch voice files
+
+# Одноразовая загрузка озвучки: скачивает mp3 по ссылкам из voice-urls.txt,
+# кладёт их в assets/voice/, удаляет список ссылок и коммитит результат.
+on:
+  push:
+    paths: ['voice-urls.txt']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download
+        run: |
+          set -e
+          mkdir -p app/src/main/assets/voice
+          while read -r name url; do
+            [ -z "$name" ] && continue
+            curl -fsSL -o "app/src/main/assets/voice/$name.mp3" "$url"
+            echo "$name: $(stat -c%s app/src/main/assets/voice/$name.mp3) bytes"
+          done < voice-urls.txt
+          git rm -q voice-urls.txt
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/src/main/assets/voice
+          git commit -m "Озвучка Евы (ElevenLabs)"
+          git push

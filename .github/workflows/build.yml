@@ -2,6 +2,7 @@ name: Build APK
 
 on:
   push:
+    paths-ignore: ['voice-urls.txt']
   workflow_dispatch:
 
 permissions:
